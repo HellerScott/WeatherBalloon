@@ -56,6 +56,13 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 // packet structure for InvenSense teapot demo
 uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
 
+/******************************************************************
+ * SERVO
+ ******************************************************************/
+ #include <Servo.h>
+ Servo leftServo;
+ Servo rightServo;
+
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
@@ -73,6 +80,7 @@ void setup()
   Serial.begin(9600);
   setupBMP();
   setupMPU();
+  setupServos();
 }
 
 void loop()
@@ -361,4 +369,14 @@ void runMPU()
         blinkState = !blinkState;
         digitalWrite(LED_PIN, blinkState);
     }
+}
+
+void setupServos()
+{
+  leftServo.attach(5); // attach the servo on pin 5 to the servo object
+  rightServo.attach(6); // attach the servo on pin 6 to the servo object
+
+  // unspool servos for max string pull capability
+  leftServo.write(180); 
+  rightServo.write(180);
 }
