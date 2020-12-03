@@ -71,6 +71,13 @@ void dmpDataReady() {
     mpuInterrupt = true;
 }
 
+/************************************************
+ * STAGING BOOLS and global variables
+ ************************************************/
+ bool setupStage;
+ bool risingStage;
+ bool landingStage;
+ double height;
 
 /**********************************************************************************
  *  Setup
@@ -81,13 +88,41 @@ void setup()
   setupBMP();
   setupMPU();
   setupServos();
+  setupStage = true;
+  risingStage = false;
+  landingStage = false;
+  height = 0;
 }
 
 void loop()
 {  
+  if(setupStage == true);
+  {
+    height = getAltitude();
+    // Code to setup gyro to face north goes here
+    risingStage = true;
+    setupStage = false;
+  }
+
+  if(risingStage == true)
+  {
+    // Code for gyro tracking. Maybe statistical algorithm to look for significant difference
+
+    // If statement will give conditions on when the rising stage has ended and falling phase has begun
+    if()
+    {
+      landingStage = true;      
+      risingStage = false;
+    }
+  }
+
+  if (landingStage == true)
+  {
+    // read in gps values and adjust servos accordingly
+  }
+  
   //runMPU(); 
   //double altitude = getAltitude();
-
 }
 
 
