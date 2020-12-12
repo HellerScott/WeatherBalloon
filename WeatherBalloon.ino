@@ -1,3 +1,5 @@
+// Additional board library url: https://resource.heltec.cn/download/package_CubeCell_index.json
+
 /***************************************************************
  *  Altemeter
  ***************************************************************/
@@ -5,32 +7,26 @@
 // (Wire is a standard library included with Arduino.):
 // This module has a hardwired I2C address and is set to 0x77.
 #include <SFE_BMP180.h>
-//#include <Wire.h>
+#include <Wire.h>
 SFE_BMP180 pressure;
 double baseline; // baseline pressure
 double alti;
-
-/*************************************************************
- *  Interrupt Code
- ************************************************************/
- const int buttonPin = 4;
+int bmpAddress = 0x77; 
+int mpuAddress;
 
 /* *************************************************************
  *  MPU
  ***************************************************************/
 #include "I2Cdev.h"
-
 #include "MPU6050_6Axis_MotionApps20.h"
-//#include "MPU6050.h" // not necessary, if using MotionApps include file
 
 // Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
 // is used in I2Cdev.h
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
     #include "Wire.h"
 #endif
-MPU6050 mpu;
 
-// #define OUTPUT_READABLE_YAWPITCHROLL
+MPU6050 mpu;
 
 #define INTERRUPT_PIN 2  // use pin 2 on Arduino Uno & most boards
 #define LED_PIN 13 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
@@ -53,9 +49,6 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 float euler[3];         // [psi, theta, phi]    Euler angle container
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-// packet structure for InvenSense teapot demo
-uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\n' };
-
 /******************************************************************
  * SERVO
  ******************************************************************/
@@ -63,6 +56,27 @@ uint8_t teapotPacket[14] = { '$', 0x02, 0,0, 0,0, 0,0, 0,0, 0x00, 0x00, '\r', '\
  Servo leftServo;
  Servo rightServo;
 
+ /*****************************************************************
+  * ORIENTATION NORTH
+  * YAW
+  ****************************************************************/
+  // North will be set up as the first yaw
+  float north;  
+  float yaw;
+  float pitch;
+  float roll; 
+  float tempDiff;
+
+  /**************************************************************
+   * GPS VALUES
+   *************************************************************/
+   #include <Math.h>
+   float longitude[1];
+   float latitude[1]; 
+   float longRise;
+   float latRun;
+   float GPSangle;
+ 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
@@ -70,6 +84,7 @@ volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin h
 void dmpDataReady() {
     mpuInterrupt = true;
 }
+
 
 /************************************************
  * STAGING BOOLS and global variables
@@ -85,8 +100,8 @@ void dmpDataReady() {
 void setup()
 {
   Serial.begin(9600);
-  setupBMP();
-  setupMPU();
+//  setupBMP();
+//  setupMPU();
   setupServos();
   setupStage = true;
   risingStage = false;
@@ -99,33 +114,45 @@ void loop()
   if(setupStage == true);
   {
     height = getAltitude();
-    // Code to setup gyro to face north goes here
+    gyro();    
+    north = yaw;
+    int pos = 0;
+    leftServo.write(0);
+    rightServo.write(0);
     risingStage = true;
     setupStage = false;
   }
 
   if(risingStage == true)
   {
-    // Code for gyro tracking. Maybe statistical algorithm to look for significant difference
-
+    gyro();    
+    alti = getAltitude();
     // If statement will give conditions on when the rising stage has ended and falling phase has begun
-    if()
+    if(alti > 29527.5591) // 9km in feet
     {
       landingStage = true;      
       risingStage = false;
+      // detach code here
+      //
+      //
+      //
+      //
     }
   }
 
   if (landingStage == true)
   {
-    // read in gps values and adjust servos accordingly
+    // gps values read in only with interrupts from Heltec; 
+    // sets longitude and latitude
+    gyro();    
   }
-  
-  //runMPU(); 
-  //double altitude = getAltitude();
 }
 
 
+
+/*******************************************************************************************************
+ * SETUP AND RUN FUNCTIONS
+ *******************************************************************************************************/
 double getPressure()
 {
   char status;
@@ -184,9 +211,7 @@ double getPressure()
 void setupBMP()
 {
    Serial.println("REBOOT");
-
   // Initialize the sensor (it is important to get calibration values stored on the device).
-
   if (pressure.begin())
     Serial.println("BMP180 init success");
   else
@@ -194,7 +219,6 @@ void setupBMP()
     // Oops, something went wrong, this is usually a connection problem,
     // see the comments at the top of this sketch for the proper connections.
     Serial.println("BMP180 init fail (disconnected?)\n\n");
-    while(1); // Pause forever.
   }
 
   // Get the baseline pressure:
@@ -223,7 +247,6 @@ double getAltitude()
   if (a >= 0.0) Serial.print(" "); // add a space for positive numbers
   Serial.print(a*3.28084,0);
   Serial.println(" feet");
-  delay(500);
 }
 
 void setupMPU()
@@ -235,10 +258,7 @@ void setupMPU()
     #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
         Fastwire::setup(400, true);
     #endif
-
-    // initialize serial communication
-    // (115200 chosen because it is required for Teapot Demo output, but it's
-    // really up to you depending on your project)
+    
     while (!Serial); // wait for Leonardo enumeration, others continue immediately
 
     // NOTE: 8MHz or slower host processors, like the Teensy @ 3.3V or Arduino
@@ -250,7 +270,7 @@ void setupMPU()
     // initialize device
     Serial.println(F("Initializing MPU device..."));
     mpu.initialize();
-    pinMode(INTERRUPT_PIN, INPUT);
+//    pinMode(INTERRUPT_PIN, INPUT);
 
     // verify connection
     Serial.println(F("Testing device connections..."));
@@ -304,9 +324,6 @@ void setupMPU()
         Serial.print(devStatus);
         Serial.println(F(")"));
     }
-
-    // configure LED for output
-    pinMode(LED_PIN, OUTPUT);
 }
 
 void runMPU()
@@ -318,19 +335,6 @@ void runMPU()
     }
     // read a packet from FIFO
     if (mpu.dmpGetCurrentFIFOPacket(fifoBuffer)) { // Get the Latest packet 
-        #ifdef OUTPUT_READABLE_QUATERNION
-            // display quaternion values in easy matrix form: w x y z
-            mpu.dmpGetQuaternion(&q, fifoBuffer);
-            Serial.print("quat\t");
-            Serial.print(q.w);
-            Serial.print("\t");
-            Serial.print(q.x);
-            Serial.print("\t");
-            Serial.print(q.y);
-            Serial.print("\t");
-            Serial.println(q.z);
-        #endif
-
         #ifdef OUTPUT_READABLE_EULER
             // display Euler angles in degrees
             mpu.dmpGetQuaternion(&q, fifoBuffer);
@@ -385,24 +389,6 @@ void runMPU()
             Serial.print("\t");
             Serial.println(aaWorld.z);
         #endif
-    
-        #ifdef OUTPUT_TEAPOT
-            // display quaternion values in InvenSense Teapot demo format:
-            teapotPacket[2] = fifoBuffer[0];
-            teapotPacket[3] = fifoBuffer[1];
-            teapotPacket[4] = fifoBuffer[4];
-            teapotPacket[5] = fifoBuffer[5];
-            teapotPacket[6] = fifoBuffer[8];
-            teapotPacket[7] = fifoBuffer[9];
-            teapotPacket[8] = fifoBuffer[12];
-            teapotPacket[9] = fifoBuffer[13];
-            Serial.write(teapotPacket, 14);
-            teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
-        #endif
-
-        // blink LED to indicate activity
-        blinkState = !blinkState;
-        digitalWrite(LED_PIN, blinkState);
     }
 }
 
@@ -410,8 +396,46 @@ void setupServos()
 {
   leftServo.attach(5); // attach the servo on pin 5 to the servo object
   rightServo.attach(6); // attach the servo on pin 6 to the servo object
+}
 
-  // unspool servos for max string pull capability
-  leftServo.write(180); 
-  rightServo.write(180);
+void gyro()
+{
+  mpu.dmpGetQuaternion(&q, fifoBuffer);
+  mpu.dmpGetGravity(&gravity, &q);
+  mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+  yaw = ypr[0] * 180/M_PI;
+  pitch = ypr[1] * 180/M_PI;
+  roll = ypr[2] * 180/M_PI;
+}
+
+void readHeltec()
+{
+  // GPS data read into Lat[1] and long[1] here
+  //
+  //
+  //
+  //
+  
+  // create direction from GPS data
+  longRise = latitude[0] - latitude[1];
+  latRun = longitude[0] - longitude[1];
+  GPSangle = atan2(longRise, latRun);
+  latitude[0] = latitude[1];
+  longitude[0] = longitude[1];
+  tempDiff = GPSangle - yaw;
+  if(tempDiff < -10)
+  {
+    rightServo.write(0);
+    leftServo.write(180);
+  }
+  else if(tempDiff > 10)
+  {
+    leftServo.write(0);
+    rightServo.write(180);
+  }  
+  else 
+  {
+    leftServo.write(0);
+    rightServo.write(0); 
+  }
 }
